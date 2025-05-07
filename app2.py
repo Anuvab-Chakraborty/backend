@@ -119,9 +119,53 @@ class purchase(db.Model):
 
 
 
+# with app.app_context():
+#     db.create_all()
+
+def set_password(password):
+    """Hashes and sets the user's password."""
+    password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+    return password_hash
+
 with app.app_context():
     db.create_all()
-    
+
+    try:
+        def create_default_user(name, email, password, role):
+            if not user.query.filter_by(email=email).first():
+                password_hash = set_password(password)
+                default_user = user(
+                    name=name,
+                    email=email,
+                    password_hash=password_hash,
+                    role=role
+                )
+                db.session.add(default_user)
+                print(f"✅ Created default user: {email} ({role.value})")
+            else:
+                print(f"ℹ️ User already exists: {email}")
+
+        # Create default recruiter (SELLER)
+        create_default_user(
+            name="Recruiter Seller",
+            email="recruiter@example.com",
+            password="recruiter123",
+            role=UserRole.SELLER
+        )
+
+        # Create default regular user (USER)
+        create_default_user(
+            name="Test User",
+            email="user@example.com",
+            password="user123",
+            role=UserRole.USER
+        )
+
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ Error while creating default users: {str(e)}")
+
 
 #Endpoints:
 
@@ -390,6 +434,7 @@ def get_books():
                 "author": author,
                 "available_from": sellers
             })
+        # print(result)
         return jsonify({
             "books": result,
             "has_more": has_more

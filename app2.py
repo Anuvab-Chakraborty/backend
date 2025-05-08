@@ -26,6 +26,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
 from sqlalchemy import Enum
 from dateutil import parser
+from sqlalchemy.orm import aliased
 # Initialize app
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": ["/","http://localhost:5173", "https://my-app.com"]}})
@@ -359,6 +360,9 @@ def update_book(book_id):
         return jsonify({"error": "Internal Server Error"}), 500
 
 
+
+
+
 @app.route('/api/list_books', methods=['GET'])
 @jwt_required()
 def get_books():
@@ -372,16 +376,7 @@ def get_books():
         if not user_data:
             return jsonify({"error": "Invalid token or user not found"}), 401
 
-        rented_subquery = (
-            db.session.query(
-                rental.seller_id.label("seller_id"),
-                rental.book_id.label("book_id"),
-                func.coalesce(func.sum(rental.rented_qty), 0).label("rented_qty")
-            )
-            .filter(rental.returned_on == None)
-            .group_by(rental.seller_id, rental.book_id)
-        ).subquery()
-
+        # Get books with at least one seller having qty > 0
         books_with_sellers = (
             db.session.query(
                 book.id.label("book_id"),
@@ -390,25 +385,19 @@ def get_books():
                 seller.id.label("seller_id"),
                 user.name.label("seller_name"),
                 user.email.label("seller_email"),
-                seller.price,
+                seller.price.label("buy_price"),
                 seller.rent_price,
-                (seller.qty - func.coalesce(rented_subquery.c.rented_qty, 0)).label("available_qty")
+                seller.qty.label("available_qty")
             )
             .join(seller, book.id == seller.book_id)
             .join(user, seller.id == user.id)
-            .outerjoin(
-                rented_subquery,
-                (rented_subquery.c.seller_id == seller.id) &
-                (rented_subquery.c.book_id == book.id)
-            )
-            .filter((seller.qty - func.coalesce(rented_subquery.c.rented_qty, 0)) > 0)
+            .filter(seller.qty > 0)
             .order_by(book.title)
             .offset(offset)
             .limit(limit)
             .all()
         )
 
-        # Check if there are more books available
         has_more = len(books_with_sellers) == limit
 
         # Format the response
@@ -420,10 +409,10 @@ def get_books():
             books_dict[key].append({
                 "seller_id": entry.seller_id,
                 "seller_name": entry.seller_name,
-                "buy_price": entry.price,
+                "seller_email": entry.seller_email,
+                "buy_price": entry.buy_price,
                 "rent_price": entry.rent_price,
-                "available_qty": entry.available_qty,
-                "seller_email":entry.seller_email,
+                "available_qty": entry.available_qty
             })
 
         result = []
@@ -434,7 +423,7 @@ def get_books():
                 "author": author,
                 "available_from": sellers
             })
-        # print(result)
+
         return jsonify({
             "books": result,
             "has_more": has_more
@@ -445,6 +434,8 @@ def get_books():
         db.session.rollback()
         return jsonify({"error": str(ex)}), 500
 
+
+
 @app.route('/api/book_availability/<int:book_id>', methods=['GET'])
 @jwt_required()
 def book_availability(book_id):
@@ -453,25 +444,20 @@ def book_availability(book_id):
         user_data = user.query.filter_by(email=user_email).first()
         if not user_data:
             return jsonify({"error": "Invalid token or user not found"}), 401
-        # Get book details
-        book_details = db.session.query(book).filter_by(id=book_id).first()
+
+        book_details = book.query.filter_by(id=book_id).first()
         if not book_details:
             return jsonify({"error": "Book not found"}), 404
 
-        # Get seller-wise availability with LEFT OUTER JOIN to include all sellers even if no rentals
+        # Fetch current available seller data
         availability_data = db.session.query(
             seller.id.label("seller_id"),
-            user.name.label("seller_name"),  # Joining user table to get the seller's name
+            user.name.label("seller_name"),
             seller.price.label("buy_price"),
             seller.rent_price,
-            seller.qty.label("total_qty"),
-            func.coalesce(func.sum(rental.rented_qty), 0).label("rented_qty"),
-            (seller.qty - func.coalesce(func.sum(rental.rented_qty), 0)).label("available_qty"),
-            func.min(rental.return_by).label("next_available_date")
+            seller.qty.label("available_qty")
         ).join(user, user.id == seller.id) \
-        .outerjoin(rental, (rental.seller_id == seller.id) & (rental.book_id == book_id)) \
          .filter(seller.book_id == book_id) \
-         .group_by(seller.id, user.name, seller.price, seller.rent_price, seller.qty) \
          .all()
 
         result = []
@@ -481,18 +467,17 @@ def book_availability(book_id):
                 "seller_name": s.seller_name,
                 "buy_price": s.buy_price,
                 "rent_price": s.rent_price,
-                "total_qty": s.total_qty,
-                "rented_qty": s.rented_qty,
-                "available_qty": s.available_qty,
-                "next_available_date": s.next_available_date.isoformat() if s.next_available_date else None
+                "available_qty": int(s.available_qty)
             })
 
         return jsonify(result), 200
 
     except Exception as ex:
-        print(ex)
+        print("Error:", ex)
         db.session.rollback()
         return jsonify({"error": str(ex)}), 500
+
+
 
 @app.route('/api/buy_book', methods=['POST'])
 @jwt_required()
@@ -506,7 +491,6 @@ def buy_book():
         seller_id = data['seller_id']
         book_id = data['book_id']
         qty = int(data['qty'])
-
         if qty < 1:
             return jsonify({'error': 'Quantity must be at least 1'}), 400
 
@@ -523,12 +507,12 @@ def buy_book():
 
         # Add purchase record
         p = purchase(
-            user_id=get_jwt_identity(),
+            user_id=user_data.id,
             seller_id=seller_id,
             book_id=book_id,
             bought_qty=qty,
-            bought_price=s.sell_price * qty,  # Assuming the price is per book
-            bought_on=datetime.utcnow()
+            bought_price=s.price * qty,  # Assuming the price is per book
+            bought_on=datetime.datetime.utcnow()
         )
         db.session.add(p)
         db.session.commit()
@@ -536,9 +520,12 @@ def buy_book():
         return jsonify({'message': f'Successfully bought {qty} book(s)'}), 200
 
     except SQLAlchemyError as e:
+        print(e,"sql")
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
     except Exception as e:
+        print(e,"normal")
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 
@@ -560,10 +547,11 @@ def rent_book():
             return jsonify({'error': 'Quantity must be at least 1'}), 400
 
         return_by = parser.parse(return_by_str)
-        if return_by <= datetime.utcnow():
+        if return_by <= datetime.datetime.utcnow():
             return jsonify({'error': 'Return date must be in the future'}), 400
-
+        print(seller_id,book_id,qty)
         s = seller.query.filter_by(id=seller_id, book_id=book_id).first()
+        print(s.qty)
         if not s:
             return jsonify({'error': 'Seller not found'}), 404
 
@@ -572,58 +560,75 @@ def rent_book():
 
         # Decrease available quantity
         s.qty -= qty
-
+        print(s.qty)
         # Create rental record
         r = rental(
-            user_id=get_jwt_identity(),
+            user_id=user_data.id,
             seller_id=seller_id,
             book_id=book_id,
             rented_qty=qty,
             rented_price=s.rent_price * qty,
-            rented_on=datetime.utcnow(),
+            rented_on=datetime.datetime.utcnow(),
             return_by=return_by
         )
+        print(r)
         db.session.add(r)
         db.session.commit()
 
         return jsonify({'message': f'Rented {qty} book(s) until {return_by.date()}'}), 200
 
     except SQLAlchemyError as e:
+        print(e,"sql")
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
     except Exception as e:
+        print(e,"normal")
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 
-# Flask route to fetch the purchased books
 @app.route('/api/purchased_books', methods=['GET'])
 @jwt_required()
 def get_purchased_books():
     try:
+        # Get the user's email from the JWT token and fetch the user data
         user_email = get_jwt_identity()
         user_data = user.query.filter_by(email=user_email).first()
 
         if not user_data:
-            return jsonify({"error": "Invalid token or user not found"}), 401
+            return jsonify({"error": "User not found"}), 404
 
-        purchased_books = purchase.query.filter_by(user_id=user_data.id).all()
+        # Query the purchased books for the logged-in user, ensuring no duplicates
+        purchased_books = db.session.query(purchase, book, seller, user) \
+            .join(book, purchase.book_id == book.id) \
+            .join(seller, purchase.seller_id == seller.id) \
+            .join(user, seller.id == user.id) \
+            .filter(purchase.user_id == user_data.id) \
+            .distinct(purchase.id) \
+            .all()
 
-        # Convert the purchased books to a list of dictionaries
+        # Prepare the response data by extracting relevant details
         purchased_books_list = [
             {
-                'id': book.id,
-                'title': book.book.title,
-                'purchased_on': book.purchased_on
+                'purchase_id': purchase.id,
+                'book_title': book.title,
+                'book_author': book.author,
+                'bought_qty': purchase.bought_qty,
+                'bought_price': purchase.bought_price,
+                'bought_on': purchase.bought_on,
+                'seller_name': user.name,
             }
-            for book in purchased_books
+            for purchase, book, seller, user in purchased_books
         ]
-
         return jsonify(purchased_books_list), 200
 
     except Exception as e:
+        print(e)
         return jsonify({'error': str(e)}), 500
 
-# Flask route to fetch the rented books
+
+
+
 @app.route('/api/rented_books', methods=['GET'])
 @jwt_required()
 def get_rented_books():
@@ -634,24 +639,63 @@ def get_rented_books():
         if not user_data:
             return jsonify({"error": "Invalid token or user not found"}), 401
 
-        rented_books = rental.query.filter_by(user_id=user_data.id).all()
+        # Create alias for seller user
+        seller_user = aliased(user)
 
-        # Convert the rented books to a list of dictionaries
+        # Join rental → book → seller → seller_user (who is the seller of the book)
+        rented_books = (
+            db.session.query(
+                rental.id.label("rental_id"),
+                rental.rented_qty,
+                rental.rented_price,
+                rental.rented_on,
+                rental.return_by,
+                book.id.label("book_id"),
+                book.title,
+                book.author,
+                seller.qty.label("seller_qty"),
+                seller.price.label("seller_price"),
+                seller.rent_price.label("seller_rent_price"),
+                seller_user.name.label("seller_name"),
+                seller_user.email.label("seller_email")
+            )
+            .join(book, rental.book_id == book.id)
+            .join(seller, (rental.seller_id == seller.id) & (rental.book_id == seller.book_id))
+            .join(seller_user, seller.id == seller_user.id)  # Aliased join
+            .filter(rental.user_id == user_data.id)
+            .filter(rental.returned_on.is_(None))  # Only active rentals
+            .order_by(rental.return_by.asc())
+            .all()
+        )
+
         rented_books_list = [
             {
-                'id': book.id,
-                'title': book.book.title,
-                'return_by': book.return_by
+                "rental_id": r.rental_id,
+                "book_id": r.book_id,
+                "title": r.title,
+                "author": r.author,
+                "rented_qty": r.rented_qty,
+                "rented_price": r.rented_price,
+                "rented_on": r.rented_on.strftime("%Y-%m-%d"),
+                "return_by": r.return_by.strftime("%Y-%m-%d"),
+                "seller_name": r.seller_name,
+                "seller_email": r.seller_email,
+                "seller_qty": r.seller_qty,
+                "seller_price": r.seller_price,
+                "seller_rent_price": r.seller_rent_price
             }
-            for book in rented_books
+            for r in rented_books
         ]
 
         return jsonify(rented_books_list), 200
 
     except Exception as e:
+        print("Error in /api/rented_books:", e)
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-# Flask route to handle returning a rented book
+
+
 @app.route('/api/return_book/<int:rented_book_id>', methods=['POST'])
 @jwt_required()
 def return_book(rented_book_id):
@@ -662,30 +706,43 @@ def return_book(rented_book_id):
         if not user_data:
             return jsonify({"error": "Invalid token or user not found"}), 401
 
+        # Get the rental record
         rented_book = rental.query.filter_by(id=rented_book_id, user_id=user_data.id).first()
 
         if not rented_book:
             return jsonify({"error": "Rented book not found"}), 404
 
-        # Check if the book is overdue
-        if rented_book.return_by <= datetime.utcnow():
+        # Check if already returned
+        if rented_book.returned_on is not None:
+            return jsonify({"error": "Book has already been returned."}), 400
+
+        # Optional: Prevent return after due date
+        # Use timezone-aware datetimes
+        utc_now = datetime.datetime.now(pytz.UTC)
+
+        if rented_book.return_by <= utc_now:
             return jsonify({"error": "The return date has already passed."}), 400
 
-        # Proceed with returning the book (update availability, etc.)
-        rented_book.returned_on = datetime.utcnow()
-        rented_book.status = 'returned'  # Assuming you track the status of rented books
+        # Mark the book as returned
+        rented_book.returned_on = utc_now
 
-        # Update book stock if necessary
-        book = book.query.filter_by(id=rented_book.book_id).first()
-        book.qty += rented_book.rented_qty  # Assuming rented_qty is stored
+        # Update the corresponding seller stock
+        seller_entry = seller.query.filter_by(id=rented_book.seller_id, book_id=rented_book.book_id).first()
+
+        if not seller_entry:
+            return jsonify({"error": "Corresponding seller entry not found"}), 500  # Should never happen
+
+        seller_entry.qty += rented_book.rented_qty
 
         db.session.commit()
 
         return jsonify({"message": "Book returned successfully"}), 200
 
     except Exception as e:
+        print(e)
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
 
 # Run the app
 if __name__ == '__main__':

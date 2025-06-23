@@ -1,0 +1,4 @@
+POSTGRES_USER=postgres
+POSTGRES_PW=pgAdmin@4
+POSTGRES_DB=bookstoredb
+POSTGRES_URL=postgres-db:5432

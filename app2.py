@@ -747,3 +747,514 @@ def return_book(rented_book_id):
 # Run the app
 if __name__ == '__main__':
     app.run(debug=True,host='0.0.0.0')
+
+
+# import psycopg2
+# from psycopg2 import sql
+
+# # Set up the connection to the source and target databases
+# source_db_config = {
+#     'host': 'ems-db.cfuwga4qmhc5.ap-south-1.rds.amazonaws.com',
+#     'dbname': 'ems-db',
+#     'user': 'ems_user',
+#     'password': 'KimbalEMS#123'
+# }
+
+# target_db_config = {
+#     'host': 'ems-db.cfuwga4qmhc5.ap-south-1.rds.amazonaws.com',
+#     'dbname': 'ems-uat-db',
+#     'user': 'ems_user',
+#     'password': 'KimbalEMS#123'
+# }
+
+# # Connect to the source database
+# source_conn = psycopg2.connect(**source_db_config)
+# source_cursor = source_conn.cursor()
+
+# # Connect to the target database
+# target_conn = psycopg2.connect(**target_db_config)
+# target_cursor = target_conn.cursor()
+
+# # Step 1: Get list of all tables from the source database
+# source_cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public';")
+# tables = source_cursor.fetchall()
+
+# # Step 2: Replicate each table (structure + data)
+# for table in tables:
+#     table_name = table[0]
+
+#     # Skip the table 'state_time_mapping'
+#     if table_name == 'test_sample':
+#         print(f"Skipping table {table_name}...")
+#         continue
+
+#     print(f"Replicating table {table_name}...")
+
+#     try:
+#         # Check if the table already exists in the target database
+#         target_cursor.execute(f"""
+#             SELECT to_regclass('public.{table_name}');
+#         """)
+#         exists = target_cursor.fetchone()[0] is not None
+
+#         if exists:
+#             print(f"Table {table_name} already exists in target database. Skipping replication.")
+#             continue  # Skip this table if it already exists in the target
+
+#         # Step 2.1: Copy table schema (structure)
+#         source_cursor.execute(f"""
+#             SELECT column_name, data_type 
+#             FROM information_schema.columns
+#             WHERE table_schema = 'public' AND table_name = %s;
+#         """, (table_name,))
+#         columns = source_cursor.fetchall()
+
+#         # Dynamically generate CREATE TABLE SQL, with proper quoting for reserved keywords
+#         create_table_sql = f"CREATE TABLE IF NOT EXISTS {table_name} ("
+#         create_table_sql += ", ".join([f'"{col[0]}" {col[1]}' if col[0].upper() in ['USER', 'TYPE', 'NAME'] else f"{col[0]} {col[1]}" for col in columns]) + ");"
+
+#         # Create table in the target database
+#         target_cursor.execute(create_table_sql)
+#         print("table created successfully in target db")
+#         # Step 2.2: Copy table data using batch inserts (to improve performance)
+#         source_cursor.execute(f"SELECT * FROM {table_name};")
+        
+#         # Fetch the first batch of rows (5000 rows)
+#         rows = source_cursor.fetchmany(5000)
+
+#         # Create insert statement dynamically
+#         placeholders = ', '.join(['%s'] * len(columns))
+#         insert_sql = f"INSERT INTO {table_name} VALUES ({placeholders})"
+        
+#         # Loop through all batches of data
+#         while rows:
+#             # Insert data for the current batch
+#             target_cursor.executemany(insert_sql, rows)
+#             target_conn.commit()  # Commit after each batch insert
+            
+#             # Fetch the next batch of data
+#             rows = source_cursor.fetchmany(5000)  # Fetch the next batch of 5000 rows
+
+#         print(f"Table {table_name} replicated successfully.")
+
+#     except Exception as e:
+#         # Log the error and continue with the next table
+#         print(f"Error replicating table {table_name}: {str(e)}")
+#         print(f"Full error details: {e}")
+
+# # Close the connections
+# source_cursor.close()
+# target_cursor.close()
+# source_conn.close()
+# target_conn.close()
+
+# print("Database replication completed for all tables!")
+
+# import psycopg2
+# from psycopg2 import sql
+
+# # Set up the connection to the source and target databases
+# source_db_config = {
+#     'host': 'ems-db.cfuwga4qmhc5.ap-south-1.rds.amazonaws.com',
+#     'dbname': 'ems-db',
+#     'user': 'ems_user',
+#     'password': 'KimbalEMS#123'
+# }
+
+# target_db_config = {
+#     'host': 'ems-db.cfuwga4qmhc5.ap-south-1.rds.amazonaws.com',
+#     'dbname': 'ems-uat-db',
+#     'user': 'ems_user',
+#     'password': 'KimbalEMS#123'
+# }
+
+# # Connect to the source database
+# source_conn = psycopg2.connect(**source_db_config)
+# source_cursor = source_conn.cursor()
+
+# # Connect to the target database
+# target_conn = psycopg2.connect(**target_db_config)
+# target_cursor = target_conn.cursor()
+
+# # Step 1: Check if the table exists in the target database
+# target_cursor.execute("""
+#     SELECT to_regclass('public.test_sample');
+# """)
+# table_exists = target_cursor.fetchone()[0] is not None
+
+# if not table_exists:
+#     # If the table does not exist, create it
+#     print("Creating the table 'test_sample' in the target database...")
+    
+#     create_table_sql = """
+#     CREATE TABLE IF NOT EXISTS public.test_sample
+#     (
+#         id integer,
+#         date date,
+#         time_slot character varying(50),
+#         predicted_consumption double precision,
+#         predicted_consumption_kw double precision,
+#         purchased_power_dam double precision,
+#         predicted_discom_landed_cost double precision,
+#         predicted_iex_landed_cost double precision,
+#         bid_quantum double precision,
+#         bid_price double precision,
+#         decision_point decision_point_enum,
+#         predicted_saving double precision,
+#         predicted_saving_percentage double precision
+#     );
+#     """
+    
+#     target_cursor.execute(create_table_sql)
+#     target_conn.commit()
+#     print("Table 'test_sample' created successfully in the target database.")
+# else:
+#     print("Table 'test_sample' already exists in the target database. Skipping creation.")
+
+# # Step 2: Fetch data from the source `test_sample` table
+# source_cursor.execute("SELECT * FROM public.test_sample;")
+# rows = source_cursor.fetchall()
+
+# # Step 3: Insert data into the target `test_sample` table
+# if rows:
+#     # Dynamically generate the insert SQL statement
+#     insert_sql = """
+#         INSERT INTO public.test_sample 
+#         (id, date, time_slot, predicted_consumption, predicted_consumption_kw, 
+#         purchased_power_dam, predicted_discom_landed_cost, predicted_iex_landed_cost, 
+#         bid_quantum, bid_price, decision_point, predicted_saving, predicted_saving_percentage)
+#         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+#     """
+    
+#     try:
+#         target_cursor.executemany(insert_sql, rows)
+#         target_conn.commit()
+#         print(f"Data inserted into 'test_sample' table successfully.")
+#     except Exception as e:
+#         print(f"Error inserting data into 'test_sample' table: {e}")
+#         target_conn.rollback()
+
+# # Step 4: Close the connections
+# source_cursor.close()
+# target_cursor.close()
+# source_conn.close()
+# target_conn.close()
+
+# print("Data replication completed successfully!")
+
+
+# import psycopg2
+
+# # Source and target DB configs
+# source_db_config = {
+#     'host': 'ems-db.cfuwga4qmhc5.ap-south-1.rds.amazonaws.com',
+#     'dbname': 'ems-db',
+#     'user': 'ems_user',
+#     'password': 'KimbalEMS#123'
+# }
+
+# target_db_config = {
+#     'host': 'ems-db.cfuwga4qmhc5.ap-south-1.rds.amazonaws.com',
+#     'dbname': 'ems-uat-db',
+#     'user': 'ems_user',
+#     'password': 'KimbalEMS#123'
+# }
+
+# # Connect to source and target databases
+# source_conn = psycopg2.connect(**source_db_config)
+# source_cur = source_conn.cursor()
+
+# target_conn = psycopg2.connect(**target_db_config)
+# target_cur = target_conn.cursor()
+
+
+# if not target_cur.fetchone()[0]:
+#     print("Creating decision_point_predicted_data table in the target...")
+
+#     create_table_sql = """
+#     CREATE TABLE public.decision_point_predicted_data
+#     (
+#         id integer NOT NULL,
+#         date date NOT NULL,
+#         time_slot character varying(50) NOT NULL,
+#         predicted_consumption double precision NOT NULL,
+#         predicted_consumption_kw double precision NOT NULL,
+#         predicted_iex_landed_cost double precision NOT NULL,
+#         predicted_discom_landed_cost double precision NOT NULL,
+#         bid_price double precision NOT NULL,
+#         decision_point decision_point_enum NOT NULL,
+#         predicted_saving double precision,
+#         predicted_saving_percentage double precision,
+#         bid_quantum double precision NOT NULL DEFAULT 0,
+#         price_mean_absolute_error double precision NOT NULL DEFAULT 0,
+#         conumption_mean_absolute_error double precision NOT NULL DEFAULT 0,
+#         user_entered_bid_quantum double precision NOT NULL DEFAULT 0,
+#         user_entered_bid_price double precision NOT NULL DEFAULT 0,
+#         CONSTRAINT decision_point_predicted_data_pkey PRIMARY KEY (id),
+#         CONSTRAINT unique_predicted_date_timeslot UNIQUE (date, time_slot)
+#     );
+#     """
+#     target_cur.execute(create_table_sql)
+#     target_conn.commit()
+#     print(" → Table created successfully in the target.")
+
+# else:
+#     print("Table already exists in target. Skipping creation.")
+
+
+
+# # Step 4: Fetch data from the source `decision_point_predicted_data` table
+# source_cur.execute("""
+#     SELECT id, date, time_slot, predicted_consumption, predicted_consumption_kw, predicted_iex_landed_cost, 
+#            predicted_discom_landed_cost, bid_price, decision_point, predicted_saving, predicted_saving_percentage, 
+#            bid_quantum, price_mean_absolute_error, conumption_mean_absolute_error, user_entered_bid_quantum, 
+#            user_entered_bid_price FROM public.decision_point_predicted_data;
+# """)
+# rows = source_cur.fetchall()
+
+# # Step 5: Insert data into the target `decision_point_predicted_data` table
+# if rows:
+#     insert_sql = """
+#     INSERT INTO public.decision_point_predicted_data
+#       (id, date, time_slot, predicted_consumption, predicted_consumption_kw, predicted_iex_landed_cost,
+#        predicted_discom_landed_cost, bid_price, decision_point, predicted_saving, predicted_saving_percentage,
+#        bid_quantum, price_mean_absolute_error, conumption_mean_absolute_error, user_entered_bid_quantum, user_entered_bid_price)
+#     VALUES
+#       (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+#     ON CONFLICT (date, time_slot) DO UPDATE SET
+#       predicted_consumption          = EXCLUDED.predicted_consumption,
+#       predicted_consumption_kw       = EXCLUDED.predicted_consumption_kw,
+#       predicted_iex_landed_cost      = EXCLUDED.predicted_iex_landed_cost,
+#       predicted_discom_landed_cost   = EXCLUDED.predicted_discom_landed_cost,
+#       bid_price                      = EXCLUDED.bid_price,
+#       decision_point                 = EXCLUDED.decision_point,
+#       predicted_saving               = EXCLUDED.predicted_saving,
+#       predicted_saving_percentage    = EXCLUDED.predicted_saving_percentage,
+#       bid_quantum                    = EXCLUDED.bid_quantum,
+#       price_mean_absolute_error      = EXCLUDED.price_mean_absolute_error,
+#       conumption_mean_absolute_error = EXCLUDED.conumption_mean_absolute_error,
+#       user_entered_bid_quantum       = EXCLUDED.user_entered_bid_quantum,
+#       user_entered_bid_price         = EXCLUDED.user_entered_bid_price;
+#     """
+    
+#     # Checking if the number of placeholders matches the number of columns
+#     print(f"Expected number of placeholders: {len(rows[0])}, Insert SQL: {insert_sql}")
+
+#     try:
+#         target_cur.executemany(insert_sql, rows)
+#         target_conn.commit()
+#         print(f"Inserted/updated {len(rows)} rows into decision_point_predicted_data.")
+#     except Exception as e:
+#         print("Error inserting data:", e)
+#         target_conn.rollback()
+# else:
+#     print("No rows found in source to copy.")
+
+# # Step 6: Clean up
+# source_cur.close()
+# target_cur.close()
+# source_conn.close()
+# target_conn.close()
+# print("Done.")
+
+
+#HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
+# import psycopg2
+
+# # ----  CONFIG  ---------------------------------------------------
+# source_db = {
+#     'host':     'ems-db.cfuwga4qmhc5.ap-south-1.rds.amazonaws.com',
+#     'dbname':   'ems-db',
+#     'user':     'ems_user',
+#     'password': 'KimbalEMS#123'
+# }
+# target_db = {
+#     'host':     'ems-db.cfuwga4qmhc5.ap-south-1.rds.amazonaws.com',
+#     'dbname':   'ems-uat-db',
+#     'user':     'ems_user',
+#     'password': 'KimbalEMS#123'
+# }
+# BATCH_SIZE = 5000
+# TABLE     = 'public.decision_point_predicted_data'
+# # -----------------------------------------------------------------
+
+# def main():
+#     src = psycopg2.connect(**source_db)
+#     tgt = psycopg2.connect(**target_db)
+#     with src, src.cursor() as sc, tgt, tgt.cursor() as tc:
+
+#         # 1) Ensure the enum type exists in target (skipped if already):
+#         tc.execute("SELECT 1 FROM pg_type WHERE typname = 'decision_point_enum'")
+#         if not tc.fetchone():
+#             tc.execute("""
+#             CREATE TYPE decision_point_enum AS ENUM ('DISCOM','IEX','IEX-DAM','IEX-GDAM');
+#             """)
+
+#         # 2) Ensure the target table exists:
+#         tc.execute("SELECT to_regclass(%s)", (TABLE,))
+#         if not tc.fetchone()[0]:
+#             print("→ Creating table in target…")
+#             tc.execute(f"""
+#             CREATE TABLE {TABLE} (
+#               id integer NOT NULL,
+#               date date NOT NULL,
+#               time_slot varchar(50) NOT NULL,
+#               predicted_consumption   double precision NOT NULL,
+#               predicted_consumption_kw double precision NOT NULL,
+#               predicted_iex_landed_cost double precision NOT NULL,
+#               predicted_discom_landed_cost double precision NOT NULL,
+#               bid_price double precision NOT NULL,
+#               decision_point decision_point_enum NOT NULL,
+#               predicted_saving double precision,
+#               predicted_saving_percentage double precision,
+#               bid_quantum double precision NOT NULL DEFAULT 0,
+#               price_mean_absolute_error double precision NOT NULL DEFAULT 0,
+#               conumption_mean_absolute_error double precision NOT NULL DEFAULT 0,
+#               user_entered_bid_quantum double precision NOT NULL DEFAULT 0,
+#               user_entered_bid_price    double precision NOT NULL DEFAULT 0,
+#               CONSTRAINT decision_point_predicted_data_pkey PRIMARY KEY (id),
+#               CONSTRAINT unique_predicted_date_timeslot UNIQUE (date, time_slot)
+#             );
+#             """)
+#             tgt.commit()
+#             print("✔ table created.")
+#         else:
+#             print("→ Table already exists; skipping CREATE.")
+
+#         # 3) Discover source columns dynamically:
+#         sc.execute(f"SELECT * FROM {TABLE} LIMIT 0")
+#         cols = [d[0] for d in sc.description]
+#         col_list   = ", ".join(cols)
+#         placeholders = ", ".join(["%s"] * len(cols))
+#         # Build ON CONFLICT DO UPDATE clause for all non-PK columns
+#         conflict_updates = ", ".join(
+#             f"{c}=EXCLUDED.{c}" for c in cols
+#             if c not in ('date', 'time_slot')  # unique key
+#         )
+
+#         upsert_sql = f"""
+#         INSERT INTO {TABLE} ({col_list})
+#         VALUES ({placeholders})
+#         ON CONFLICT (date, time_slot) DO UPDATE
+#           SET {conflict_updates}
+#         """
+
+#         # 4) Fetch from source in batches, upsert to target
+#         sc.execute(f"SELECT * FROM {TABLE}")
+#         total = 0
+#         while True:
+#             batch = sc.fetchmany(BATCH_SIZE)
+#             if not batch:
+#                 break
+#             tc.executemany(upsert_sql, batch)
+#             tgt.commit()
+#             total += len(batch)
+#             print(f"  → upserted {len(batch)} rows (total {total})")
+
+#         print("✅ All done!")
+
+# if __name__ == "__main__":
+#     main()
+
+# import psycopg2
+
+# # --- CONFIG -----------------------------------------------------------------
+# SOURCE_DB = {
+#     'host':     'ems-db.cfuwga4qmhc5.ap-south-1.rds.amazonaws.com',
+#     'dbname':   'ems-db',
+#     'user':     'ems_user',
+#     'password': 'KimbalEMS#123'
+# }
+# TARGET_DB = {
+#     'host':     'ems-db.cfuwga4qmhc5.ap-south-1.rds.amazonaws.com',
+#     'dbname':   'ems-uat-db',
+#     'user':     'ems_user',
+#     'password': 'KimbalEMS#123'
+# }
+# TABLE_NAME = 'public.decision_point_predicted_data_rtm'
+# BATCH_SIZE = 5000
+# # ---------------------------------------------------------------------------
+
+# def main():
+#     src_conn = psycopg2.connect(**SOURCE_DB)
+#     tgt_conn = psycopg2.connect(**TARGET_DB)
+
+#     with src_conn, src_conn.cursor() as sc, tgt_conn, tgt_conn.cursor() as tc:
+#         # 1) Ensure enum exists in target
+#         tc.execute("SELECT 1 FROM pg_type WHERE typname = 'decision_point_enum'")
+#         if not tc.fetchone():
+#             tc.execute("""
+#               CREATE TYPE decision_point_enum AS ENUM (
+#                 'DISCOM','IEX','IEX-DAM','IEX-GDAM'
+#               );
+#             """)
+#             tgt_conn.commit()
+#             print("✔ Created decision_point_enum in target")
+
+#         # 2) Create RTM table if missing
+#         tc.execute("SELECT to_regclass(%s)", (TABLE_NAME,))
+#         if not tc.fetchone()[0]:
+#             print(f"→ Creating {TABLE_NAME} …")
+#             tc.execute(f"""
+#             CREATE TABLE {TABLE_NAME}
+#             (
+#                 id integer NOT NULL,
+#                 date date,
+#                 time_slot character varying(50),
+#                 predicted_consumption double precision,
+#                 predicted_consumption_kw double precision,
+#                 purchased_power_dam double precision,
+#                 predicted_discom_landed_cost double precision,
+#                 predicted_iex_landed_cost double precision,
+#                 bid_quantum double precision,
+#                 bid_price double precision,
+#                 decision_point decision_point_enum,
+#                 predicted_saving double precision,
+#                 predicted_saving_percentage double precision,
+#                 user_entered_bid_quantum double precision NOT NULL DEFAULT 0,
+#                 user_entered_bid_price double precision NOT NULL DEFAULT 0,
+#                 purchased_power_gdam double precision NOT NULL DEFAULT 0,
+#                 CONSTRAINT decision_point_predicted_data_rtm_pkey PRIMARY KEY (id),
+#                 CONSTRAINT unique_predicted_date_timeslot_rtm1 UNIQUE (date, time_slot)
+#             );
+#             """)
+#             tgt_conn.commit()
+#             print("✔ Table created in target")
+#         else:
+#             print("→ Table already exists; skipping CREATE")
+
+#         # 3) Discover source columns
+#         sc.execute(f"SELECT * FROM {TABLE_NAME} LIMIT 0")
+#         cols = [d[0] for d in sc.description]
+#         col_list     = ", ".join(cols)
+#         placeholders = ", ".join(["%s"] * len(cols))
+
+#         # Build the ON CONFLICT DO UPDATE clause for all non-unique-key columns
+#         # (we keep date+time_slot as the uniqueness constraint)
+#         update_cols = [c for c in cols if c not in ('date', 'time_slot')]
+#         updates = ", ".join(f"{c}=EXCLUDED.{c}" for c in update_cols)
+
+#         upsert_sql = f"""
+#         INSERT INTO {TABLE_NAME} ({col_list})
+#         VALUES ({placeholders})
+#         ON CONFLICT (date, time_slot) DO UPDATE
+#           SET {updates};
+#         """
+
+#         # 4) Fetch & upsert in batches
+#         print("→ Copying data in batches…")
+#         sc.execute(f"SELECT * FROM {TABLE_NAME}")
+#         total = 0
+#         while True:
+#             batch = sc.fetchmany(BATCH_SIZE)
+#             if not batch:
+#                 break
+#             tc.executemany(upsert_sql, batch)
+#             tgt_conn.commit()
+#             total += len(batch)
+#             print(f"   • Upserted {len(batch)} rows (total {total})")
+
+#         print(f"✅ Finished upserting {total} rows into {TABLE_NAME}")
+
+# if __name__ == "__main__":
+#     main()
